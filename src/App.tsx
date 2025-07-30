@@ -9,7 +9,6 @@ const theme = createTheme({
   // You can customize colors, spacing, etc. here
 });
 
-// The removeApplicants function (copied from your selection)
 function removeApplicants(chatlog: string, searchParameter: string): string {
     // 1. Split the chatlog into individual lines
     const lines = chatlog.split('\n');
@@ -26,6 +25,9 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
     // The key will be the line content, and the value will be an object
     // containing the full original line and its parsed timestamp.
     const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
+
+    let lastParsedTime: Date | null = null;
+    let dayOffset = 0; // Tracks the inferred day progression
 
     // Process each line for filtering and deduplication by content
     for (const line of lines) {
@@ -50,9 +52,20 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
             const minutes = parseInt(match[2], 10);
             const seconds = parseInt(match[3], 10);
 
-            // Create a Date object for comparison. Use a fixed arbitrary date.
-            parsedTimestamp = new Date('2000-01-01T00:00:00');
-            parsedTimestamp.setHours(hours, minutes, seconds, 0); // Set milliseconds to 0
+            // Create a temporary Date object for the current line's time on a base day
+            let tempDate = new Date('2000-01-01T00:00:00'); // Base date
+            tempDate.setHours(hours, minutes, seconds, 0);
+
+            // Logic to infer day progression:
+            // If the current time is earlier than the last parsed time,
+            // it implies a new day has started.
+            if (lastParsedTime && tempDate.getTime() < lastParsedTime.getTime()) {
+                dayOffset++;
+            }
+            lastParsedTime = tempDate; // Update last parsed time for the next iteration
+
+            // Apply the day offset to the parsed timestamp
+            parsedTimestamp = new Date(tempDate.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
 
             // The content for deduplication is the part after the timestamp
             lineContentForDeduplication = match[4].trim();
@@ -60,6 +73,7 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
             // If a line doesn't have the expected timestamp format,
             // assign it a very early date (epoch) so it appears at the beginning of the sorted list.
             parsedTimestamp = new Date(0); // January 1, 1970 UTC
+            lastParsedTime = null; // Reset lastParsedTime if no timestamp found
             // The entire trimmed line is the content for deduplication if no timestamp is found
             lineContentForDeduplication = trimmedLine;
         }
@@ -100,9 +114,9 @@ function App() {
     // Main container for the application, centered and with a nice background
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md space-y-6 border border-gray-700">
+        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-1x1 space-y-3 border border-gray-700">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-6">
-            Chatlog Filter & Sort
+            VPAT Processor
           </h1>
 
           {/* Input for Applicant Name */}
