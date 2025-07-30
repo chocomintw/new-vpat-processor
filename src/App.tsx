@@ -1,19 +1,16 @@
-import { useState } from 'react'
-import '@mantine/core/styles.css';
-import './App.css'
-import { Button, CopyButton, createTheme, MantineProvider, Textarea, TextInput } from '@mantine/core';
+import { useState } from 'react';
+import { TextInput, Textarea, Button, CopyButton, MantineProvider, createTheme } from '@mantine/core';
+import '@mantine/core/styles.css'; // Import Mantine styles
 
+// Define the Mantine theme
 const theme = createTheme({
-  fontFamily: 'Montserrat',
-  primaryColor: 'cyan',
-  defaultRadius: 'lg',
+  /** Put your Mantine theme override here */
+  fontFamily: 'Montserrat, sans-serif', // Use Inter font
+  // You can customize colors, spacing, etc. here
 });
 
-function App() {
-  const [applicantValue, setApplicantValue] = useState('');
-  const [chatlogValue, setChatlogValue] = useState('')
-
-  function removeApplicants(chatlog: string, searchParameter: string): string {
+// The removeApplicants function (copied from your selection)
+function removeApplicants(chatlog: string, searchParameter: string): string {
     // 1. Split the chatlog into individual lines
     const lines = chatlog.split('\n');
 
@@ -91,31 +88,81 @@ function App() {
     return sortableItems.map(item => item.fullLine).join('\n');
 }
 
-  /** function removeApplicants(chatlog: string, searchParameter: string) {
-    // let search = `/^(?!.*${searchParameter}).*/; //` 
-  /*  let regularExpressionNames = new RegExp(search, "i");
-    let result = regularExpressionNames.exec(chatlog)?.toString();
-    console.log(result)
-    console.log(searchParameter)
 
-    return result;
-  } */
+function App() {
+  const [applicantValue, setApplicantValue] = useState<string>('');
+  const [chatlogValue, setChatlogValue] = useState<string>('');
+
+  // Calculate the processed chatlog
+  const processedChatlog = removeApplicants(chatlogValue, applicantValue);
 
   return (
-    <>
-      <MantineProvider theme={theme} defaultColorScheme="dark">
-      <TextInput placeholder='Name of the Applicant' value={applicantValue} onChange={(event) => setApplicantValue(event.currentTarget.value)} />
-      <Textarea placeholder='Session chatlog' value={chatlogValue} onChange={(event) => setChatlogValue(event.currentTarget.value)} />
-      <CopyButton value={removeApplicants(chatlogValue, applicantValue)!}>
-      {({ copied, copy }) => (
-        <Button color={copied ? 'teal' : 'blue'} onClick={copy}>
-          {copied ? 'Copied chatlog' : 'Copy chatlog'}
-        </Button>
-        )}
-      </CopyButton>
-      </MantineProvider>
-    </>
-  )
+    // Main container for the application, centered and with a nice background
+    <MantineProvider theme={theme} defaultColorScheme="dark">
+      <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md space-y-6 border border-gray-700">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-6">
+            Chatlog Filter & Sort
+          </h1>
+
+          {/* Input for Applicant Name */}
+          <TextInput
+            placeholder='Name of the Applicant (e.g., "Applicant A")'
+            value={applicantValue}
+            onChange={(event) => setApplicantValue(event.currentTarget.value)}
+            className="w-full"
+            size="md"
+            radius="md"
+            styles={{ input: { borderColor: '#4A5568' } }} // Custom border color for dark theme
+          />
+
+          {/* Textarea for Session Chatlog */}
+          <Textarea
+            placeholder='Paste your session chatlog here...'
+            value={chatlogValue}
+            onChange={(event) => setChatlogValue(event.currentTarget.value)}
+            autosize
+            minRows={8}
+            maxRows={15}
+            className="w-full font-mono text-sm" // Monospaced font for chatlog
+            size="md"
+            radius="md"
+            styles={{ input: { borderColor: '#4A5568' } }}
+          />
+
+          {/* Copy Button */}
+          <CopyButton value={processedChatlog}>
+            {({ copied, copy }) => (
+              <Button
+                color={copied ? 'teal' : 'blue'}
+                onClick={copy}
+                fullWidth
+                size="lg"
+                radius="md"
+                className="transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
+                style={{
+                  background: copied ? 'linear-gradient(45deg, #38B2AC 30%, #4FD1C5 90%)' : 'linear-gradient(45deg, #4299E1 30%, #63B3ED 90%)',
+                  boxShadow: copied ? '0 4px 15px rgba(56, 178, 172, 0.4)' : '0 4px 15px rgba(66, 153, 225, 0.4)',
+                }}
+              >
+                {copied ? 'Copied Processed Chatlog!' : 'Copy Processed Chatlog'}
+              </Button>
+            )}
+          </CopyButton>
+
+          {/* Display Area for Processed Chatlog */}
+          {processedChatlog && (
+            <div className="mt-6 p-4 bg-gray-700 rounded-lg shadow-inner border border-gray-600">
+              <h2 className="text-xl font-semibold text-blue-300 mb-3">Processed Chatlog:</h2>
+              <pre className="whitespace-pre-wrap break-words font-mono text-sm text-gray-200 bg-gray-900 p-3 rounded-md overflow-auto max-h-60">
+                {processedChatlog}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </MantineProvider>
+  );
 }
 
-export default App
+export default App;
