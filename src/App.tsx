@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
+// IMPORTANT: These Mantine imports require @mantine/core and its styles to be installed
+// in your local project. This environment cannot resolve them directly.
 import { TextInput, Textarea, Button, CopyButton, MantineProvider, createTheme } from '@mantine/core';
-import '@mantine/core/styles.css'; // Import Mantine styles
+import '@mantine/core/styles.css'; // Ensure Mantine styles are imported
 
 // Define the Mantine theme
 const theme = createTheme({
   /** Put your Mantine theme override here */
-  fontFamily: 'Montserrat, sans-serif', // Use Inter font
+  fontFamily: 'Montserrat, sans-serif', // Using Montserrat as requested
   // You can customize colors, spacing, etc. here
 });
 
+// The removeApplicants function with timestamp sorting and filtering logic
 function removeApplicants(chatlog: string, searchParameter: string): string {
     // 1. Split the chatlog into individual lines
     const lines = chatlog.split('\n');
@@ -102,20 +105,47 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
     return sortableItems.map(item => item.fullLine).join('\n');
 }
 
-
 function App() {
   const [applicantValue, setApplicantValue] = useState<string>('');
   const [chatlogValue, setChatlogValue] = useState<string>('');
+  // New state variables for error messages
+  const [applicantError, setApplicantError] = useState<string | null>(null);
+  const [chatlogError, setChatlogError] = useState<string | null>(null);
 
   // Calculate the processed chatlog
   const processedChatlog = removeApplicants(chatlogValue, applicantValue);
+
+  // Custom click handler for the Copy button to include validation
+  const handleCopyClick = (copyFunction: () => void) => {
+    let hasError = false;
+
+    if (!applicantValue.trim()) {
+      setApplicantError('Applicant name cannot be empty.');
+      hasError = true;
+    } else {
+      setApplicantError(null);
+    }
+
+    if (!chatlogValue.trim()) {
+      setChatlogError('Chatlog cannot be empty.');
+      hasError = true;
+    } else {
+      setChatlogError(null);
+    }
+
+    if (!hasError) {
+      copyFunction(); // Only call the copy function if no errors
+    }
+  };
 
   return (
     // Main container for the application, centered and with a nice background
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-1x1 space-y-3 border border-gray-700">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-blue-400 mb-6">
+        {/* Changed max-w-md to max-w-2xl for a larger desktop layout */}
+        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl space-y-6 border border-gray-700">
+          {/* Changed text-blue-400 to text-green-400 */}
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-green-400 mb-6">
             VPAT Processor
           </h1>
 
@@ -123,40 +153,61 @@ function App() {
           <TextInput
             placeholder='Name of the Applicant (e.g., "Applicant A")'
             value={applicantValue}
-            onChange={(event) => setApplicantValue(event.currentTarget.value)}
+            onChange={(event) => {
+              setApplicantValue(event.currentTarget.value);
+              setApplicantError(null); // Clear error when typing
+            }}
             className="w-full"
             size="md"
             radius="md"
-            styles={{ input: { borderColor: '#4A5568' } }} // Custom border color for dark theme
+            error={applicantError} // Pass error message to Mantine TextInput
+            styles={{ 
+              input: { 
+                borderColor: '#4A5568',
+                backgroundColor: '#2D3748', // Set background to dark gray
+                color: '#F7FAFC' // Set text color to light gray/almost white
+              } 
+            }}
           />
 
           {/* Textarea for Session Chatlog */}
           <Textarea
             placeholder='Paste your session chatlog here...'
             value={chatlogValue}
-            onChange={(event) => setChatlogValue(event.currentTarget.value)}
+            onChange={(event) => {
+              setChatlogValue(event.currentTarget.value);
+              setChatlogError(null); // Clear error when typing
+            }}
             autosize
             minRows={8}
             maxRows={15}
             className="w-full font-mono text-sm" // Monospaced font for chatlog
             size="md"
             radius="md"
-            styles={{ input: { borderColor: '#4A5568' } }}
+            error={chatlogError} // Pass error message to Mantine Textarea
+            styles={{ 
+              input: { 
+                borderColor: '#4A5568',
+                backgroundColor: '#2D3748', // Set background to dark gray
+                color: '#F7FAFC' // Set text color to light gray/almost white
+              } 
+            }}
           />
 
           {/* Copy Button */}
           <CopyButton value={processedChatlog}>
             {({ copied, copy }) => (
               <Button
-                color={copied ? 'teal' : 'blue'}
-                onClick={copy}
+                // Use the custom handleCopyClick function
+                onClick={() => handleCopyClick(copy)}
+                color={copied ? 'emerald' : 'green'} // Mantine color prop
                 fullWidth
                 size="lg"
                 radius="md"
                 className="transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
                 style={{
-                  background: copied ? 'linear-gradient(45deg, #38B2AC 30%, #4FD1C5 90%)' : 'linear-gradient(45deg, #4299E1 30%, #63B3ED 90%)',
-                  boxShadow: copied ? '0 4px 15px rgba(56, 178, 172, 0.4)' : '0 4px 15px rgba(66, 153, 225, 0.4)',
+                  background: copied ? 'linear-gradient(45deg, #059669 30%, #10B981 90%)' : 'linear-gradient(45deg, #16A34A 30%, #22C55E 90%)',
+                  boxShadow: copied ? '0 4px 15px rgba(5, 150, 105, 0.4)' : '0 4px 15px rgba(22, 163, 74, 0.4)',
                 }}
               >
                 {copied ? 'Copied Processed Chatlog!' : 'Copy Processed Chatlog'}
@@ -167,7 +218,8 @@ function App() {
           {/* Display Area for Processed Chatlog */}
           {processedChatlog && (
             <div className="mt-6 p-4 bg-gray-700 rounded-lg shadow-inner border border-gray-600">
-              <h2 className="text-xl font-semibold text-blue-300 mb-3">Processed Chatlog:</h2>
+              {/* Changed text-blue-300 to text-green-300 */}
+              <h2 className="text-xl font-semibold text-green-300 mb-3">Processed Chatlog:</h2>
               <pre className="whitespace-pre-wrap break-words font-mono text-sm text-gray-200 bg-gray-900 p-3 rounded-md overflow-auto max-h-60">
                 {processedChatlog}
               </pre>
