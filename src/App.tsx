@@ -1,25 +1,19 @@
-import React, { useState } from 'react';
-// IMPORTANT: These Mantine imports require @mantine/core and its styles to be installed
-// in your local project. This environment cannot resolve them directly.
+import { useState } from 'react';
 import { TextInput, Textarea, Button, CopyButton, MantineProvider, createTheme } from '@mantine/core';
 import '@mantine/core/styles.css'; // Ensure Mantine styles are imported
 
 // Define the Mantine theme
 const theme = createTheme({
-  /** Put your Mantine theme override here */
-  fontFamily: 'Montserrat, sans-serif', // Using Montserrat as requested
-  // You can customize colors, spacing, etc. here
+  fontFamily: 'Montserrat, sans-serif',
 });
 
 // The removeApplicants function with timestamp sorting and filtering logic
 function removeApplicants(chatlog: string, searchParameter: string): string {
     // 1. Split the chatlog into individual lines
     const lines = chatlog.split('\n');
-
     // Create a regular expression to filter lines that DO contain the searchParameter
     // 'i' flag for case-insensitive matching
     const includesRegex = new RegExp(`${searchParameter}`, 'i');
-
     // Regex to extract the timestamp [hh:mm:ss] and the rest of the line content.
     // Group 1: hh, Group 2: mm, Group 3: ss, Group 4: rest of the line.
     const timestampRegex = /^\[(\d{2}):(\d{2}):(\d{2})\]\s*(.*)/;
@@ -142,9 +136,7 @@ function App() {
     // Main container for the application, centered and with a nice background
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        {/* Changed max-w-md to max-w-2xl for a larger desktop layout */}
         <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl space-y-6 border border-gray-700">
-          {/* Changed text-blue-400 to text-green-400 */}
           <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-green-400 mb-6">
             VPAT Processor
           </h1>
@@ -164,8 +156,8 @@ function App() {
             styles={{ 
               input: { 
                 borderColor: '#4A5568',
-                backgroundColor: '#2D3748', // Set background to dark gray
-                color: '#F7FAFC' // Set text color to light gray/almost white
+                backgroundColor: '#2D3748',
+                color: '#F7FAFC'
               } 
             }}
           />
@@ -181,15 +173,15 @@ function App() {
             autosize
             minRows={8}
             maxRows={15}
-            className="w-full font-mono text-sm" // Monospaced font for chatlog
+            className="w-full font-mono text-sm"
             size="md"
             radius="md"
             error={chatlogError} // Pass error message to Mantine Textarea
             styles={{ 
               input: { 
                 borderColor: '#4A5568',
-                backgroundColor: '#2D3748', // Set background to dark gray
-                color: '#F7FAFC' // Set text color to light gray/almost white
+                backgroundColor: '#2D3748',
+                color: '#F7FAFC'
               } 
             }}
           />
@@ -215,10 +207,8 @@ function App() {
             )}
           </CopyButton>
 
-          {/* Display Area for Processed Chatlog */}
           {processedChatlog && (
             <div className="mt-6 p-4 bg-gray-700 rounded-lg shadow-inner border border-gray-600">
-              {/* Changed text-blue-300 to text-green-300 */}
               <h2 className="text-xl font-semibold text-green-300 mb-3">Processed Chatlog:</h2>
               <pre className="whitespace-pre-wrap break-words font-mono text-sm text-gray-200 bg-gray-900 p-3 rounded-md overflow-auto max-h-60">
                 {processedChatlog}
