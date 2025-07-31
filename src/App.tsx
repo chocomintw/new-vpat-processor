@@ -13,19 +13,19 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
     const includesRegex = new RegExp(`${searchParameter}`, 'i');
     const timestampRegex = /^\[(\d{2}):(\d{2}):(\d{2})\]\s*(.*)/;
 
-    // Intermediate structure to hold parsed data before final processing
-    interface ParsedLine {
-        fullLine: string;
-        contentForDeduplication: string;
-        timestampParts: { hours: number; minutes: number; seconds: number } | null;
-        originalIndex: number; // To maintain original relative order for non-timestamped lines
-    }
+    // Use a Map to store unique lines based on their content (excluding timestamp).
+    const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
 
-    const parsedLines: ParsedLine[] = [];
+    let lastParsedFullTimestamp: Date | null = null; // Stores the *fully resolved* timestamp of the previous line
+    let currentDayOffset = 0; // Tracks the inferred day progression (in days)
 
-    // --- Pass 1: Parse and Filter Lines ---
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+    // A base date to build our timestamps upon. We can pick any date, say, today's date
+    // or a fixed historical date. Let's use current date to ensure valid year context,
+    // but we will override only its time.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to beginning of today
+
+    for (const line of lines) {
         const trimmedLine = line.trim();
         if (!trimmedLine) {
             continue; // Skip empty lines
@@ -36,94 +36,68 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
         }
 
         const match = trimmedLine.match(timestampRegex);
-        let timestampParts: { hours: number; minutes: number; seconds: number } | null = null;
-        let contentForDeduplication: string;
+        let currentLineTimestamp: Date; // The timestamp for the current line
+        let lineContentForDeduplication: string;
 
         if (match && match[1] && match[2] && match[3]) {
-            timestampParts = {
-                hours: parseInt(match[1], 10),
-                minutes: parseInt(match[2], 10),
-                seconds: parseInt(match[3], 10),
-            };
-            contentForDeduplication = match[4].trim();
-        } else {
-            contentForDeduplication = trimmedLine;
-        }
+            const hours = parseInt(match[1], 10);
+            const minutes = parseInt(match[2], 10);
+            const seconds = parseInt(match[3], 10);
 
-        parsedLines.push({
-            fullLine: trimmedLine,
-            contentForDeduplication,
-            timestampParts,
-            originalIndex: i,
-        });
-    }
+            // Create a temporary Date object representing the time of day on our base day
+            // We use 'today' as the base to keep calendar arithmetic consistent
+            const tempDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            tempDate.setHours(hours, minutes, seconds, 0);
 
-    // Sort parsedLines primarily by timestamp parts (time of day),
-    // and secondarily by original index for stable sort of lines without timestamps or same time.
-    parsedLines.sort((a, b) => {
-        // Handle lines without timestamps first (they should appear earliest)
-        if (!a.timestampParts && !b.timestampParts) {
-            return a.originalIndex - b.originalIndex; // Maintain original order
-        }
-        if (!a.timestampParts) return -1; // a comes first
-        if (!b.timestampParts) return 1;  // b comes first
+            // Infer day progression:
+            // If there's a last timestamp and the current time (on its base day) is *earlier* than the
+            // *last fully processed timestamp's time-of-day*, then a new day has likely started.
+            if (lastParsedFullTimestamp) {
+                // Get just the time-of-day part of the last full timestamp
+                const lastTimeOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                lastTimeOfDay.setHours(
+                    lastParsedFullTimestamp.getHours(),
+                    lastParsedFullTimestamp.getMinutes(),
+                    lastParsedFullTimestamp.getSeconds(),
+                    0
+                );
 
-        // Compare by hours, then minutes, then seconds
-        if (a.timestampParts.hours !== b.timestampParts.hours) {
-            return a.timestampParts.hours - b.timestampParts.hours;
-        }
-        if (a.timestampParts.minutes !== b.timestampParts.minutes) {
-            return a.timestampParts.minutes - b.timestampParts.minutes;
-        }
-        if (a.timestampParts.seconds !== b.timestampParts.seconds) {
-            return a.timestampParts.seconds - b.timestampParts.seconds;
-        }
-        return a.originalIndex - b.originalIndex; // Stable sort for identical timestamps
-    });
-
-    // --- Pass 2: Infer Day Offsets and Populate Unique Lines Map ---
-    const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
-    let currentDayOffset = 0;
-    let lastTimeOfDayValue: number | null = null; // Stored as milliseconds from start of a base day
-
-    for (const item of parsedLines) {
-        let finalTimestamp: Date;
-
-        if (item.timestampParts) {
-            const { hours, minutes, seconds } = item.timestampParts;
-            const currentTimeOfDay = new Date('2000-01-01T00:00:00'); // Base date for time only
-            currentTimeOfDay.setHours(hours, minutes, seconds, 0);
-            const currentTimeOfDayValue = currentTimeOfDay.getTime();
-
-            // Check for day rollover based on the sorted time-of-day values
-            if (lastTimeOfDayValue !== null && currentTimeOfDayValue < lastTimeOfDayValue) {
-                currentDayOffset++; // Time has gone backward, so it's a new day
+                // If current time-of-day is less than previous time-of-day, increment day offset
+                if (tempDate.getTime() < lastTimeOfDay.getTime()) {
+                    currentDayOffset++;
+                }
             }
-            lastTimeOfDayValue = currentTimeOfDayValue;
+            
+            // Apply the accumulated day offset to get the full timestamp for this line
+            currentLineTimestamp = new Date(tempDate.getTime() + (currentDayOffset * 24 * 60 * 60 * 1000));
+            
+            // Update lastParsedFullTimestamp with the current, fully resolved timestamp
+            lastParsedFullTimestamp = currentLineTimestamp;
 
-            // Construct the final timestamp by adding the inferred day offset
-            finalTimestamp = new Date(currentTimeOfDayValue + (currentDayOffset * 24 * 60 * 60 * 1000));
+            lineContentForDeduplication = match[4].trim();
         } else {
             // For lines without timestamps, assign epoch and reset day tracking
-            finalTimestamp = new Date(0); // Jan 1, 1970 UTC
-            lastTimeOfDayValue = null; // Reset day inference
+            currentLineTimestamp = new Date(0); // January 1, 1970 UTC
+            lastParsedFullTimestamp = null; // Reset day inference
             currentDayOffset = 0; // Reset day offset
+            lineContentForDeduplication = trimmedLine;
         }
 
-        // Deduplication logic: Keep the entry with the *earlier* timestamp if content is identical
-        if (!uniqueLinesMap.has(item.contentForDeduplication) ||
-            (finalTimestamp && uniqueLinesMap.get(item.contentForDeduplication)!.timestamp > finalTimestamp)) {
-
-            uniqueLinesMap.set(item.contentForDeduplication, {
-                fullLine: item.fullLine,
-                timestamp: finalTimestamp,
+        // Deduplication logic: If the content is already in the map,
+        // we keep the entry with the *earlier* timestamp.
+        if (!uniqueLinesMap.has(lineContentForDeduplication) ||
+            (currentLineTimestamp && uniqueLinesMap.get(lineContentForDeduplication)!.timestamp > currentLineTimestamp)) {
+            
+            uniqueLinesMap.set(lineContentForDeduplication, { 
+                fullLine: trimmedLine, 
+                timestamp: currentLineTimestamp
             });
         }
     }
 
-    // --- Pass 3: Final Sorting and Join ---
     let sortableItems = Array.from(uniqueLinesMap.values());
 
+    // Final sort based on the fully calculated timestamps
     sortableItems.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
     return sortableItems.map(item => item.fullLine).join('\n');
@@ -135,8 +109,6 @@ function App() {
     const [applicantError, setApplicantError] = useState<string | null>(null);
     const [chatlogError, setChatlogError] = useState<string | null>(null);
 
-    // Calculate the processed chatlog. Memoize this for performance if chatlogValue changes frequently
-    // and removeApplicants is expensive, but for typical chatlog sizes, direct calculation is fine.
     const processedChatlog = removeApplicants(chatlogValue, applicantValue);
 
     const handleCopyClick = (copyFunction: () => void) => {
