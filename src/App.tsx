@@ -4,7 +4,7 @@ import '@mantine/core/styles.css'; // Ensure Mantine styles are imported
 
 // Define the Mantine theme
 const theme = createTheme({
-  fontFamily: 'Montserrat, sans-serif',
+    fontFamily: 'Montserrat, sans-serif',
 });
 
 // The removeApplicants function with timestamp sorting and filtering logic
@@ -23,8 +23,8 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
     // containing the full original line and its parsed timestamp.
     const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
 
-    let lastParsedTime: Date | null = null;
-    let dayOffset = 0; // Tracks the inferred day progression
+    let lastParsedFullTimestamp: Date | null = null; // Stores the *fully resolved* timestamp of the previous line
+    let dayOffset = 0; // Tracks the inferred day progression (in days)
 
     // Process each line for filtering and deduplication by content
     for (const line of lines) {
@@ -40,7 +40,7 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
 
         // Attempt to extract timestamp and line content
         const match = trimmedLine.match(timestampRegex);
-        let parsedTimestamp: Date;
+        let currentLineTimestamp: Date; // The timestamp for the current line
         let lineContentForDeduplication: string; // This will be the key for the map
 
         if (match && match[1] && match[2] && match[3]) {
@@ -50,27 +50,41 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
             const seconds = parseInt(match[3], 10);
 
             // Create a temporary Date object for the current line's time on a base day
-            let tempDate = new Date('2000-01-01T00:00:00'); // Base date
-            tempDate.setHours(hours, minutes, seconds, 0);
+            // This 'baseDateWithTime' only holds the time of day from the current line.
+            let baseDateWithTime = new Date('2000-01-01T00:00:00'); 
+            baseDateWithTime.setHours(hours, minutes, seconds, 0);
 
             // Logic to infer day progression:
-            // If the current time is earlier than the last parsed time,
+            // If there was a previous timestamp, compare the current line's time-of-day
+            // with the previous line's time-of-day. If the current time is earlier,
             // it implies a new day has started.
-            if (lastParsedTime && tempDate.getTime() < lastParsedTime.getTime()) {
-                dayOffset++;
-            }
-            lastParsedTime = tempDate; // Update last parsed time for the next iteration
+            if (lastParsedFullTimestamp) {
+                const lastTimeOnly = new Date('2000-01-01T00:00:00');
+                lastTimeOnly.setHours(
+                    lastParsedFullTimestamp.getHours(),
+                    lastParsedFullTimestamp.getMinutes(),
+                    lastParsedFullTimestamp.getSeconds(),
+                    0
+                );
 
-            // Apply the day offset to the parsed timestamp
-            parsedTimestamp = new Date(tempDate.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
+                if (baseDateWithTime.getTime() < lastTimeOnly.getTime()) {
+                    dayOffset++;
+                }
+            }
+
+            // Apply the accumulated day offset to the current line's base time
+            currentLineTimestamp = new Date(baseDateWithTime.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
+            
+            // Update lastParsedFullTimestamp with the current, fully resolved timestamp
+            lastParsedFullTimestamp = currentLineTimestamp;
 
             // The content for deduplication is the part after the timestamp
             lineContentForDeduplication = match[4].trim();
         } else {
             // If a line doesn't have the expected timestamp format,
             // assign it a very early date (epoch) so it appears at the beginning of the sorted list.
-            parsedTimestamp = new Date(0); // January 1, 1970 UTC
-            lastParsedTime = null; // Reset lastParsedTime if no timestamp found
+            currentLineTimestamp = new Date(0); // January 1, 1970 UTC
+            lastParsedFullTimestamp = null; // Reset lastParsedFullTimestamp if no timestamp found
             // The entire trimmed line is the content for deduplication if no timestamp is found
             lineContentForDeduplication = trimmedLine;
         }
@@ -78,11 +92,11 @@ function removeApplicants(chatlog: string, searchParameter: string): string {
         // Deduplication logic: If the content is already in the map,
         // we keep the entry with the *earlier* timestamp.
         if (!uniqueLinesMap.has(lineContentForDeduplication) ||
-            (parsedTimestamp && uniqueLinesMap.get(lineContentForDeduplication)!.timestamp > parsedTimestamp)) {
+            (currentLineTimestamp && uniqueLinesMap.get(lineContentForDeduplication)!.timestamp > currentLineTimestamp)) {
             
             uniqueLinesMap.set(lineContentForDeduplication, { 
                 fullLine: trimmedLine, // Store the original full line (with timestamp)
-                timestamp: parsedTimestamp
+                timestamp: currentLineTimestamp
             });
         }
     }
