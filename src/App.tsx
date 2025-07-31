@@ -9,230 +9,240 @@ const theme = createTheme({
 
 // The removeApplicants function with timestamp sorting and filtering logic
 function removeApplicants(chatlog: string, searchParameter: string): string {
-    // 1. Split the chatlog into individual lines
     const lines = chatlog.split('\n');
-    // Create a regular expression to filter lines that DO contain the searchParameter
-    // 'i' flag for case-insensitive matching
     const includesRegex = new RegExp(`${searchParameter}`, 'i');
-    // Regex to extract the timestamp [hh:mm:ss] and the rest of the line content.
-    // Group 1: hh, Group 2: mm, Group 3: ss, Group 4: rest of the line.
     const timestampRegex = /^\[(\d{2}):(\d{2}):(\d{2})\]\s*(.*)/;
 
-    // Use a Map to store unique lines based on their content (excluding timestamp).
-    // The key will be the line content, and the value will be an object
-    // containing the full original line and its parsed timestamp.
-    const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
+    // Intermediate structure to hold parsed data before final processing
+    interface ParsedLine {
+        fullLine: string;
+        contentForDeduplication: string;
+        timestampParts: { hours: number; minutes: number; seconds: number } | null;
+        originalIndex: number; // To maintain original relative order for non-timestamped lines
+    }
 
-    let lastParsedFullTimestamp: Date | null = null; // Stores the *fully resolved* timestamp of the previous line
-    let dayOffset = 0; // Tracks the inferred day progression (in days)
+    const parsedLines: ParsedLine[] = [];
 
-    // Process each line for filtering and deduplication by content
-    for (const line of lines) {
+    // --- Pass 1: Parse and Filter Lines ---
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         const trimmedLine = line.trim();
         if (!trimmedLine) {
             continue; // Skip empty lines
         }
 
-        // Apply the search parameter filter: ONLY process lines that CONTAIN the searchParameter
         if (!includesRegex.test(trimmedLine)) {
             continue; // Skip lines that do NOT contain the searchParameter
         }
 
-        // Attempt to extract timestamp and line content
         const match = trimmedLine.match(timestampRegex);
-        let currentLineTimestamp: Date; // The timestamp for the current line
-        let lineContentForDeduplication: string; // This will be the key for the map
+        let timestampParts: { hours: number; minutes: number; seconds: number } | null = null;
+        let contentForDeduplication: string;
 
         if (match && match[1] && match[2] && match[3]) {
-            // Extract hours, minutes, seconds
-            const hours = parseInt(match[1], 10);
-            const minutes = parseInt(match[2], 10);
-            const seconds = parseInt(match[3], 10);
-
-            // Create a temporary Date object for the current line's time on a base day
-            // This 'baseDateWithTime' only holds the time of day from the current line.
-            let baseDateWithTime = new Date('2000-01-01T00:00:00'); 
-            baseDateWithTime.setHours(hours, minutes, seconds, 0);
-
-            // Logic to infer day progression:
-            // If there was a previous timestamp, compare the current line's time-of-day
-            // with the previous line's time-of-day. If the current time is earlier,
-            // it implies a new day has started.
-            if (lastParsedFullTimestamp) {
-                const lastTimeOnly = new Date('2000-01-01T00:00:00');
-                lastTimeOnly.setHours(
-                    lastParsedFullTimestamp.getHours(),
-                    lastParsedFullTimestamp.getMinutes(),
-                    lastParsedFullTimestamp.getSeconds(),
-                    0
-                );
-
-                if (baseDateWithTime.getTime() < lastTimeOnly.getTime()) {
-                    dayOffset++;
-                }
-            }
-
-            // Apply the accumulated day offset to the current line's base time
-            currentLineTimestamp = new Date(baseDateWithTime.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
-            
-            // Update lastParsedFullTimestamp with the current, fully resolved timestamp
-            lastParsedFullTimestamp = currentLineTimestamp;
-
-            // The content for deduplication is the part after the timestamp
-            lineContentForDeduplication = match[4].trim();
+            timestampParts = {
+                hours: parseInt(match[1], 10),
+                minutes: parseInt(match[2], 10),
+                seconds: parseInt(match[3], 10),
+            };
+            contentForDeduplication = match[4].trim();
         } else {
-            // If a line doesn't have the expected timestamp format,
-            // assign it a very early date (epoch) so it appears at the beginning of the sorted list.
-            currentLineTimestamp = new Date(0); // January 1, 1970 UTC
-            lastParsedFullTimestamp = null; // Reset lastParsedFullTimestamp if no timestamp found
-            // The entire trimmed line is the content for deduplication if no timestamp is found
-            lineContentForDeduplication = trimmedLine;
+            contentForDeduplication = trimmedLine;
         }
 
-        // Deduplication logic: If the content is already in the map,
-        // we keep the entry with the *earlier* timestamp.
-        if (!uniqueLinesMap.has(lineContentForDeduplication) ||
-            (currentLineTimestamp && uniqueLinesMap.get(lineContentForDeduplication)!.timestamp > currentLineTimestamp)) {
-            
-            uniqueLinesMap.set(lineContentForDeduplication, { 
-                fullLine: trimmedLine, // Store the original full line (with timestamp)
-                timestamp: currentLineTimestamp
+        parsedLines.push({
+            fullLine: trimmedLine,
+            contentForDeduplication,
+            timestampParts,
+            originalIndex: i,
+        });
+    }
+
+    // Sort parsedLines primarily by timestamp parts (time of day),
+    // and secondarily by original index for stable sort of lines without timestamps or same time.
+    parsedLines.sort((a, b) => {
+        // Handle lines without timestamps first (they should appear earliest)
+        if (!a.timestampParts && !b.timestampParts) {
+            return a.originalIndex - b.originalIndex; // Maintain original order
+        }
+        if (!a.timestampParts) return -1; // a comes first
+        if (!b.timestampParts) return 1;  // b comes first
+
+        // Compare by hours, then minutes, then seconds
+        if (a.timestampParts.hours !== b.timestampParts.hours) {
+            return a.timestampParts.hours - b.timestampParts.hours;
+        }
+        if (a.timestampParts.minutes !== b.timestampParts.minutes) {
+            return a.timestampParts.minutes - b.timestampParts.minutes;
+        }
+        if (a.timestampParts.seconds !== b.timestampParts.seconds) {
+            return a.timestampParts.seconds - b.timestampParts.seconds;
+        }
+        return a.originalIndex - b.originalIndex; // Stable sort for identical timestamps
+    });
+
+    // --- Pass 2: Infer Day Offsets and Populate Unique Lines Map ---
+    const uniqueLinesMap = new Map<string, { fullLine: string; timestamp: Date }>();
+    let currentDayOffset = 0;
+    let lastTimeOfDayValue: number | null = null; // Stored as milliseconds from start of a base day
+
+    for (const item of parsedLines) {
+        let finalTimestamp: Date;
+
+        if (item.timestampParts) {
+            const { hours, minutes, seconds } = item.timestampParts;
+            const currentTimeOfDay = new Date('2000-01-01T00:00:00'); // Base date for time only
+            currentTimeOfDay.setHours(hours, minutes, seconds, 0);
+            const currentTimeOfDayValue = currentTimeOfDay.getTime();
+
+            // Check for day rollover based on the sorted time-of-day values
+            if (lastTimeOfDayValue !== null && currentTimeOfDayValue < lastTimeOfDayValue) {
+                currentDayOffset++; // Time has gone backward, so it's a new day
+            }
+            lastTimeOfDayValue = currentTimeOfDayValue;
+
+            // Construct the final timestamp by adding the inferred day offset
+            finalTimestamp = new Date(currentTimeOfDayValue + (currentDayOffset * 24 * 60 * 60 * 1000));
+        } else {
+            // For lines without timestamps, assign epoch and reset day tracking
+            finalTimestamp = new Date(0); // Jan 1, 1970 UTC
+            lastTimeOfDayValue = null; // Reset day inference
+            currentDayOffset = 0; // Reset day offset
+        }
+
+        // Deduplication logic: Keep the entry with the *earlier* timestamp if content is identical
+        if (!uniqueLinesMap.has(item.contentForDeduplication) ||
+            (finalTimestamp && uniqueLinesMap.get(item.contentForDeduplication)!.timestamp > finalTimestamp)) {
+
+            uniqueLinesMap.set(item.contentForDeduplication, {
+                fullLine: item.fullLine,
+                timestamp: finalTimestamp,
             });
         }
     }
 
-    // Convert the Map values to an array for sorting
+    // --- Pass 3: Final Sorting and Join ---
     let sortableItems = Array.from(uniqueLinesMap.values());
 
-    // Sort the items by their timestamp
-    // The .getTime() method returns the number of milliseconds since the epoch,
-    // allowing for a direct numerical comparison.
     sortableItems.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-    // Map back to the original line strings and join them with newline characters
     return sortableItems.map(item => item.fullLine).join('\n');
 }
 
 function App() {
-  const [applicantValue, setApplicantValue] = useState<string>('');
-  const [chatlogValue, setChatlogValue] = useState<string>('');
-  // New state variables for error messages
-  const [applicantError, setApplicantError] = useState<string | null>(null);
-  const [chatlogError, setChatlogError] = useState<string | null>(null);
+    const [applicantValue, setApplicantValue] = useState<string>('');
+    const [chatlogValue, setChatlogValue] = useState<string>('');
+    const [applicantError, setApplicantError] = useState<string | null>(null);
+    const [chatlogError, setChatlogError] = useState<string | null>(null);
 
-  // Calculate the processed chatlog
-  const processedChatlog = removeApplicants(chatlogValue, applicantValue);
+    // Calculate the processed chatlog. Memoize this for performance if chatlogValue changes frequently
+    // and removeApplicants is expensive, but for typical chatlog sizes, direct calculation is fine.
+    const processedChatlog = removeApplicants(chatlogValue, applicantValue);
 
-  // Custom click handler for the Copy button to include validation
-  const handleCopyClick = (copyFunction: () => void) => {
-    let hasError = false;
+    const handleCopyClick = (copyFunction: () => void) => {
+        let hasError = false;
 
-    if (!applicantValue.trim()) {
-      setApplicantError('Applicant name cannot be empty.');
-      hasError = true;
-    } else {
-      setApplicantError(null);
-    }
+        if (!applicantValue.trim()) {
+            setApplicantError('Applicant name cannot be empty.');
+            hasError = true;
+        } else {
+            setApplicantError(null);
+        }
 
-    if (!chatlogValue.trim()) {
-      setChatlogError('Chatlog cannot be empty.');
-      hasError = true;
-    } else {
-      setChatlogError(null);
-    }
+        if (!chatlogValue.trim()) {
+            setChatlogError('Chatlog cannot be empty.');
+            hasError = true;
+        } else {
+            setChatlogError(null);
+        }
 
-    if (!hasError) {
-      copyFunction(); // Only call the copy function if no errors
-    }
-  };
+        if (!hasError) {
+            copyFunction();
+        }
+    };
 
-  return (
-    // Main container for the application, centered and with a nice background
-    <MantineProvider theme={theme} defaultColorScheme="dark">
-      <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl space-y-6 border border-gray-700">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-green-400 mb-6">
-            VPAT Processor
-          </h1>
+    return (
+        <MantineProvider theme={theme} defaultColorScheme="dark">
+            <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+                <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl space-y-6 border border-gray-700">
+                    <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-green-400 mb-6">
+                        VPAT Processor
+                    </h1>
 
-          {/* Input for Applicant Name */}
-          <TextInput
-            placeholder='Name of the Applicant (e.g., "Applicant A")'
-            value={applicantValue}
-            onChange={(event) => {
-              setApplicantValue(event.currentTarget.value);
-              setApplicantError(null); // Clear error when typing
-            }}
-            className="w-full"
-            size="md"
-            radius="md"
-            error={applicantError} // Pass error message to Mantine TextInput
-            styles={{ 
-              input: { 
-                borderColor: '#4A5568',
-                backgroundColor: '#2D3748',
-                color: '#F7FAFC'
-              } 
-            }}
-          />
+                    <TextInput
+                        placeholder='Name of the Applicant (e.g., "Applicant A")'
+                        value={applicantValue}
+                        onChange={(event) => {
+                            setApplicantValue(event.currentTarget.value);
+                            setApplicantError(null);
+                        }}
+                        className="w-full"
+                        size="md"
+                        radius="md"
+                        error={applicantError}
+                        styles={{
+                            input: {
+                                borderColor: '#4A5568',
+                                backgroundColor: '#2D3748',
+                                color: '#F7FAFC'
+                            }
+                        }}
+                    />
 
-          {/* Textarea for Session Chatlog */}
-          <Textarea
-            placeholder='Paste your session chatlog here...'
-            value={chatlogValue}
-            onChange={(event) => {
-              setChatlogValue(event.currentTarget.value);
-              setChatlogError(null); // Clear error when typing
-            }}
-            autosize
-            minRows={8}
-            maxRows={15}
-            className="w-full font-mono text-sm"
-            size="md"
-            radius="md"
-            error={chatlogError} // Pass error message to Mantine Textarea
-            styles={{ 
-              input: { 
-                borderColor: '#4A5568',
-                backgroundColor: '#2D3748',
-                color: '#F7FAFC'
-              } 
-            }}
-          />
+                    <Textarea
+                        placeholder='Paste your session chatlog here...'
+                        value={chatlogValue}
+                        onChange={(event) => {
+                            setChatlogValue(event.currentTarget.value);
+                            setChatlogError(null);
+                        }}
+                        autosize
+                        minRows={8}
+                        maxRows={15}
+                        className="w-full font-mono text-sm"
+                        size="md"
+                        radius="md"
+                        error={chatlogError}
+                        styles={{
+                            input: {
+                                borderColor: '#4A5568',
+                                backgroundColor: '#2D3748',
+                                color: '#F7FAFC'
+                            }
+                        }}
+                    />
 
-          {/* Copy Button */}
-          <CopyButton value={processedChatlog}>
-            {({ copied, copy }) => (
-              <Button
-                // Use the custom handleCopyClick function
-                onClick={() => handleCopyClick(copy)}
-                color={copied ? 'emerald' : 'green'} // Mantine color prop
-                fullWidth
-                size="lg"
-                radius="md"
-                className="transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
-                style={{
-                  background: copied ? 'linear-gradient(45deg, #059669 30%, #10B981 90%)' : 'linear-gradient(45deg, #16A34A 30%, #22C55E 90%)',
-                  boxShadow: copied ? '0 4px 15px rgba(5, 150, 105, 0.4)' : '0 4px 15px rgba(22, 163, 74, 0.4)',
-                }}
-              >
-                {copied ? 'Copied Processed Chatlog!' : 'Copy Processed Chatlog'}
-              </Button>
-            )}
-          </CopyButton>
+                    <CopyButton value={processedChatlog}>
+                        {({ copied, copy }) => (
+                            <Button
+                                onClick={() => handleCopyClick(copy)}
+                                color={copied ? 'emerald' : 'green'}
+                                fullWidth
+                                size="lg"
+                                radius="md"
+                                className="transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
+                                style={{
+                                    background: copied ? 'linear-gradient(45deg, #059669 30%, #10B981 90%)' : 'linear-gradient(45deg, #16A34A 30%, #22C55E 90%)',
+                                    boxShadow: copied ? '0 4px 15px rgba(5, 150, 105, 0.4)' : '0 4px 15px rgba(22, 163, 74, 0.4)',
+                                }}
+                            >
+                                {copied ? 'Copied Processed Chatlog!' : 'Copy Processed Chatlog'}
+                            </Button>
+                        )}
+                    </CopyButton>
 
-          {processedChatlog && (
-            <div className="mt-6 p-4 bg-gray-700 rounded-lg shadow-inner border border-gray-600">
-              <h2 className="text-xl font-semibold text-green-300 mb-3">Processed Chatlog:</h2>
-              <pre className="whitespace-pre-wrap break-words font-mono text-sm text-gray-200 bg-gray-900 p-3 rounded-md overflow-auto max-h-60">
-                {processedChatlog}
-              </pre>
+                    {processedChatlog && (
+                        <div className="mt-6 p-4 bg-gray-700 rounded-lg shadow-inner border border-gray-600">
+                            <h2 className="text-xl font-semibold text-green-300 mb-3">Processed Chatlog:</h2>
+                            <pre className="whitespace-pre-wrap break-words font-mono text-sm text-gray-200 bg-gray-900 p-3 rounded-md overflow-auto max-h-60">
+                                {processedChatlog}
+                            </pre>
+                        </div>
+                    )}
+                </div>
             </div>
-          )}
-        </div>
-      </div>
-    </MantineProvider>
-  );
+        </MantineProvider>
+    );
 }
 
 export default App;
